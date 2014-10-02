@@ -117,7 +117,7 @@ class AfricaSoil(object):
         return r2s
         #return sorted(r2s.keys(), key=lambda x: r2s[x])
 
-    def best_pearsons(self, pfile = 'pearson.json', n_cols = 100, c_dist = 5):
+    def best_pearsons(self, n_cols = 100, c_dist = 20, pfile = 'pearson.json'):
         '''
         Returns the top n_cols columns for each target feature.
         Metric: pearson correlation rankins (from pfile). To reduce colinearity,
@@ -143,18 +143,24 @@ class AfricaSoil(object):
             train_cols[target] = best_cols
         return train_cols
 
-    
+    def pearsons_to_Xy(self, **kwargs):
+        '''
+        Builds X and y arrays for training, selecting only columns from the
+          best_pearsons function. Feed any arguments for that function in
+          through **kwargs.
+        '''
+        bests = self.best_pearsons(**kwargs)
+        X = {}
+        y = {}
+        for t in self.targetcols:
+            indexcolnames = [col[0] for col in bests[t]]
+            X[t] = np.array(self.train[indexcolnames])
+            y[t] = self.train_target[t].values
+        return X, y
 
 if __name__=='__main__':
   # a = AfricaSoil()
-
-  # best_features = {}
-  # for k in a.targetcols:
-  #   best_features[k] = a.find_best_features(k)
-  # lrs = a.basic_LRs()
-  # a.predict_test(lrs, 'predictions1.csv')
-  # a.pearson_test_features()
-  bests = pearson_bests(30)
+  bests = a.best_pearsons()
   for k in bests:
     print k
     for r in bests[k]:
