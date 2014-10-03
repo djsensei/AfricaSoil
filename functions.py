@@ -40,17 +40,18 @@ def MCRMSE(pred_df, true_df):
 def RMSE(pred_arr, true_arr):
     return np.sqrt(np.mean((pred_arr - true_arr) ** 2))
 
-def pearson_bests(n, pfile = 'pearson.json'):
-    '''
-    returns the best n columns for each target in the pearson test json file
-    '''
-    with open(pfile) as rf:
-        d = json.loads(rf.read())
-    bests = {}
-    for k in d:
-        b = sorted(d[k].iteritems(), key = lambda x: abs(x[1]), reverse = True)
-        bests[k] = b[:n]
-    return bests
+# DEPRECATED: USE AfricaSoil.best_pearsons instead
+# def pearson_bests(n, pfile = 'pearson.json'):
+#     '''
+#     returns the best n columns for each target in the pearson test json file
+#     '''
+#     with open(pfile) as rf:
+#         d = json.loads(rf.read())
+#     bests = {}
+#     for k in d:
+#         b = sorted(d[k].iteritems(), key = lambda x: abs(x[1]), reverse = True)
+#         bests[k] = b[:n]
+#     return bests
 
 def no_neighbors_in_set(i, s, d):
     '''

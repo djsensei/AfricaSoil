@@ -3,7 +3,7 @@ Africa Soil Kaggle code
 Dan Morris
 9/24/14 -
 
-Links:
+Relevant Links:
 http://arkansasagnews.uark.edu/558-20.pdf
 '''
 
@@ -41,7 +41,8 @@ class AfricaSoil(object):
     def predict_test(self, model_dict, output_file):
         '''
         Predicts the test set with the given model and outputs the results in
-          proper format.
+          proper format. The model for each target column should be in the
+          model_dict keyed by its name.
         '''
         X = self.test.drop('PIDN', axis = 1)
         pred_array = self.test['PIDN'].values.reshape((self.ntest, 1))
@@ -117,31 +118,59 @@ class AfricaSoil(object):
         return r2s
         #return sorted(r2s.keys(), key=lambda x: r2s[x])
 
-    def best_pearsons(self, n_cols = 100, c_dist = 20, pfile = 'pearson.json'):
+    def single_best_pearson(self, corr_dict, target, n_cols = 100,
+                            c_dist = 20):
+        best_cols = []
+        best_col_indices = set()
+        # get list of all column-correlation tuples, sorted by correlation
+        l = sorted([(i, v) for i, v in corr_dict[target].iteritems()],
+                   key = lambda x: abs(x[1][1]),
+                   reverse = True)
+        # each row in l: [index, (colname, correlation)]
+        for row in l:
+            if row[1][0][0] != 'm': # it's not a spectra column
+                best_cols.append(row[1])
+            else: # it IS a spectra column
+                if no_neighbors_in_set(int(row[0]), best_col_indices, c_dist):
+                    best_col_indices.add(int(row[0]))
+                    best_cols.append(row[1])
+            if len(best_cols) == n_cols:
+                break
+        return best_cols
+
+    def best_pearsons(self, n_cols = 100, c_dist = 20, target = 'all',
+                      pfile = 'pearson.json'):
         '''
-        Returns the top n_cols columns for each target feature.
+        Returns the top n_cols columns for either one or all target features.
         Metric: pearson correlation rankins (from pfile). To reduce colinearity,
         each column appended must be at least c_dist away from any columns already
         in the top rankings. Named columns are excluded from such proximity testing.
         '''
         with open(pfile) as rf:
             corr_dict = json.loads(rf.read())
-        train_cols = {} # key = target column, value = best n_cols columns
-        for target in corr_dict:
-            best_cols = []
-            best_col_indices = set()
-            # get list of all column-correlation tuples, sorted by correlation
-            l = sorted([(i, v) for i, v in corr_dict[target].iteritems()],
-                       key = lambda x: abs(x[1][1]),
-                       reverse = True)
-            for row in l:
-                if no_neighbors_in_set(int(row[0]), best_col_indices, c_dist):
-                    best_col_indices.add(int(row[0]))
-                    best_cols.append(row[1])
-                if len(best_col_indices) == n_cols:
-                    break
-            train_cols[target] = best_cols
+        if target == 'all':
+            train_cols = {} # key = target column, value = best n_cols columns
+            for target in corr_dict:
+                best_cols = self.single_best_pearson(corr_dict, target,
+                                                     n_cols, c_dist)
+                train_cols[target] = best_cols
+        else:
+            train_cols = self.single_best_pearson(corr_dict, target,
+                                                  n_cols, c_dist)
         return train_cols
+
+    def single_pearson_to_Xy(self, target, solo = True,
+                             bestcols=None, **kwargs):
+        '''
+        solo True if pulling a single column, False if coming from
+          pearsons_to_Xy. Make sure to specify n_cols and c_dist if solo call.
+        '''
+        if solo:
+            bestcols = self.best_pearsons(target = target, **kwargs)
+        icn = [col[0] for col in bestcols]
+        X = np.array(self.train[icn])
+        y = self.train_target[target].values
+        return X, y, icn
 
     def pearsons_to_Xy(self, **kwargs):
         '''
@@ -152,11 +181,42 @@ class AfricaSoil(object):
         bests = self.best_pearsons(**kwargs)
         X = {}
         y = {}
+        icn = {} # lists of column names. keep them around for testing!
         for t in self.targetcols:
-            indexcolnames = [col[0] for col in bests[t]]
-            X[t] = np.array(self.train[indexcolnames])
-            y[t] = self.train_target[t].values
-        return X, y
+            X[t], y[t], icn[t] = self.single_pearsons_to_Xy(bests[t], t)
+        return X, y, icn
+
+    def grid_search_pearsons(self, model, n_cols_list, c_dist_list,
+                             n_folds = 5, target = None):
+        '''
+        Tests all permutations of n_cols and c_dict with the given model.
+        Prints the best hyperparams for each target feature and returns a sorted
+          list of n, c, score tuples.
+        '''
+        # scores = dict of lists of (n_cols, c_dict, score) tuples
+        if target == None:
+            scores = {t:[] for t in self.targetcols}
+            target = self.targetcols
+        else:
+            scores = {target:[]}
+            target = [target]
+        for t in target:
+            for n in n_cols_list:
+                for c in c_dist_list:
+                    print 'predicting for t:' + t + ' n:' + str(n) + ' c:' + str(c)
+                    temp_scores = []
+                    X, y, icn = self.pearsons_to_Xy(n_cols = n, c_dist = c)
+                    for train, test in KFold(self.ntrain, n_folds, shuffle = True):
+                        model.fit(X[t][train], y[t][train])
+                        temp_scores.append(model.score(X[t][test], y[t][test]))
+                    scores[t].append((n, c, np.mean(temp_scores)))
+        for t in scores:
+            scores[t] = sorted(scores[t], key = lambda x: x[2], reverse = True)
+            print 'Best score for target [' + t + ']: ' + str(scores[t][0][2])
+            print 'Best params for target [' + t + ']:'
+            print '  n_cols = ' + str(scores[t][0][0])
+            print '  c_dist = ' + str(scores[t][0][1])
+        return scores
 
 if __name__=='__main__':
   # a = AfricaSoil()
